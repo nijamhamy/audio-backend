@@ -177,3 +177,12 @@ async def enhance_audio(file: UploadFile = File(...)):
         return {"error": f"Saving failed: {str(e)}"}
 
     return FileResponse(output_file, media_type="audio/wav", filename="enhanced_audio.wav")
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+
+    port = int(os.environ.get("PORT", 10000))
+    print("Starting server on port:", port)
+
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
