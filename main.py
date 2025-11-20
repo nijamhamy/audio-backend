@@ -58,8 +58,15 @@ app.add_middleware(
 # ============================================================
 #                   ENHANCE AUDIO ROUTE
 # ============================================================
-@app.api_route("/enhance", methods=["POST", "OPTIONS", "HEAD"])
+# Fix HEAD request so Render doesn't throw 405
+@app.head("/enhance")
+async def head_enhance():
+    return {"status": "ok"}
+
+# Main POST endpoint
+@app.post("/enhance")
 async def enhance_audio(file: UploadFile = File(...)):
+
 
     ext = file.filename.split(".")[-1].lower()
     original_file = f"temp_input.{ext}"
