@@ -59,6 +59,11 @@ app.add_middleware(
 #                   ENHANCE AUDIO ROUTE
 # ============================================================
 # Fix HEAD request so Render doesn't throw 405
+@app.get("/")
+async def root():
+    return {"message": "AI Audio Enhancer Backend is running"}
+
+
 @app.head("/enhance")
 async def head_enhance():
     return {"status": "ok"}
