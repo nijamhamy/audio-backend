@@ -9,3 +9,6 @@ soundfile==0.12.1
 pyloudnorm==0.1.1
 numpy==1.23.5
 pedalboard==0.9.9
+
+# AI NOISE REDUCTION (very light)
+rnnoise

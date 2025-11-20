@@ -28,6 +28,9 @@ import noisereduce as nr
 import soundfile as sf
 import pyloudnorm as pyln
 
+# AI noise reducer (small, fast)
+from rnnoise import RNNoise
+
 from pedalboard import (
     Pedalboard,
     Compressor,
@@ -60,6 +63,10 @@ async def root():
 async def head_enhance():
     return {"status": "ok"}
 
+
+# ============================================================
+#                    MAIN ENHANCE ROUTE
+# ============================================================
 @app.post("/enhance")
 async def enhance_audio(file: UploadFile = File(...)):
     ext = file.filename.split(".")[-1].lower()
@@ -67,9 +74,11 @@ async def enhance_audio(file: UploadFile = File(...)):
     wav_file = "temp_input.wav"
     output_file = "enhanced_output.wav"
 
+    # Save uploaded file
     with open(original_file, "wb") as f:
         f.write(await file.read())
 
+    # Convert to WAV
     try:
         audio = AudioSegment.from_file(original_file)
         audio = audio.set_channels(1)
@@ -78,17 +87,28 @@ async def enhance_audio(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": f"FFmpeg conversion failed: {str(e)}"}
 
+    # Load WAV
     try:
         y, sr = librosa.load(wav_file, sr=None)
     except Exception as e:
         return {"error": f"Error loading WAV: {str(e)}"}
 
-    # No AI model — simple noise reduction + EQ + normalize
+    # ============================================================
+    #   STEP C — AI Noise Reduction using RNNoise
+    # ============================================================
     try:
-        cleaned = nr.reduce_noise(y=y, sr=sr, prop_decrease=0.65)
-    except:
-        cleaned = y
+        rnnoise = RNNoise()
+        cleaned = rnnoise.reduce_noise(y)
+    except Exception as e:
+        print("RNNoise failed → fallback to noisereduce:", e)
+        try:
+            cleaned = nr.reduce_noise(y=y, sr=sr, prop_decrease=0.65)
+        except:
+            cleaned = y
 
+    # ============================================================
+    #   STEP D — Studio FX (EQ + Compressor)
+    # ============================================================
     try:
         board = Pedalboard([
             HighpassFilter(80),
@@ -99,6 +119,9 @@ async def enhance_audio(file: UploadFile = File(...)):
     except:
         processed = cleaned
 
+    # ============================================================
+    #   STEP E — Loudness Normalization (-16 LUFS)
+    # ============================================================
     try:
         meter = pyln.Meter(sr)
         loudness = meter.integrated_loudness(processed)
@@ -107,12 +130,16 @@ async def enhance_audio(file: UploadFile = File(...)):
     except:
         normalized = processed
 
+    # ============================================================
+    #   STEP F — Final Limiter
+    # ============================================================
     try:
         limiter = Pedalboard([Limiter(threshold_db=-1.0)])
         final_audio = limiter(np.expand_dims(normalized, 0), sr).squeeze()
     except:
         final_audio = normalized
 
+    # Save output
     try:
         sf.write(output_file, final_audio.astype(np.float32), sr)
     except Exception as e:
@@ -121,6 +148,9 @@ async def enhance_audio(file: UploadFile = File(...)):
     return FileResponse(output_file, media_type="audio/wav", filename="enhanced_audio.wav")
 
 
+# ============================================================
+#                   LOCAL RUN
+# ============================================================
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
