@@ -1,22 +1,23 @@
 import os
 import numpy as np
+import shutil
 
 # ============================================================
-#               FFMPEG CONFIG (VERY IMPORTANT)
+#               FFMPEG CONFIG (LINUX FRIENDLY)
 # ============================================================
-FFMPEG_PATH = r"C:\\ffmpeg\\ffmpeg-8.0-essentials_build\\ffmpeg-8.0-essentials_build\\bin\\ffmpeg.exe"
-FFPROBE_PATH = r"C:\\ffmpeg\\ffmpeg-8.0-essentials_build\\ffmpeg-8.0-essentials_build\\bin\\ffprobe.exe"
-
-os.environ["PATH"] += os.pathsep + os.path.dirname(FFMPEG_PATH)
-os.environ["FFMPEG_BINARY"] = FFMPEG_PATH
-os.environ["FFPROBE_BINARY"] = FFPROBE_PATH
+# Auto-detect ffmpeg in Linux (Render)
+FFMPEG_PATH = shutil.which("ffmpeg")
+FFPROBE_PATH = shutil.which("ffprobe")
 
 print("Using FFmpeg:", FFMPEG_PATH)
 
+# Add to PATH
+if FFMPEG_PATH:
+    os.environ["PATH"] += os.pathsep + os.path.dirname(FFMPEG_PATH)
+
 from pydub import AudioSegment
-from pydub.utils import which
-AudioSegment.converter = which("ffmpeg") or FFMPEG_PATH
-AudioSegment.ffprobe = which("ffprobe") or FFPROBE_PATH
+AudioSegment.converter = FFMPEG_PATH
+AudioSegment.ffprobe = FFPROBE_PATH
 
 # ============================================================
 #                     IMPORTS
@@ -29,7 +30,6 @@ import noisereduce as nr
 import soundfile as sf
 import pyloudnorm as pyln
 
-# Adobe-style AI enhancement
 from demucs.apply import apply_model
 from demucs.pretrained import get_model
 
@@ -49,7 +49,7 @@ app = FastAPI()
 # ---------------- ADD CORS (REQUIRED FOR FRONTEND) ----------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # Allow all frontend URLs
+    allow_origins=["*"],       
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,10 +58,9 @@ app.add_middleware(
 # ============================================================
 #                   ENHANCE AUDIO ROUTE
 # ============================================================
-@app.post("/enhance")
+@app.api_route("/enhance", methods=["POST", "OPTIONS", "HEAD"])
 async def enhance_audio(file: UploadFile = File(...)):
 
-    # ---------------- FILE NAMES ----------------
     ext = file.filename.split(".")[-1].lower()
     original_file = f"temp_input.{ext}"
     wav_file = "temp_input.wav"
