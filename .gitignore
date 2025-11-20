@@ -1,0 +1,14 @@
+venv/
+venv310/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.dll
+*.so
+*.dylib
+*.log
+ffmpeg/
+*.exe
+*.whl

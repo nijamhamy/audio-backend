@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+pydub
+librosa
+noisereduce
+soundfile
+pyloudnorm
+numpy
+pedalboard
+demucs
+backend
