@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydub import AudioSegment
 import soundfile as sf
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Allow large uploads (50MB)
 sys.setrecursionlimit(1000000)
@@ -21,12 +22,29 @@ if FFMPEG_PATH:
 else:
     print("⚠ Warning: FFmpeg not found")
 
-# ==========================================
-#  FastAPI App (50MB upload limit)
-# ==========================================
-app = FastAPI(max_request_size=1024 * 1024 * 50)
 
-# CORS (Netlify → Railway)
+# ==========================================
+#  Large Upload Middleware (IMPORTANT)
+# ==========================================
+class LargeRequestMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        try:
+            request_body = await request.body()
+            request._body = request_body
+        except:
+            pass
+        return await call_next(request)
+
+
+# ==========================================
+#  FastAPI App
+# ==========================================
+app = FastAPI()
+
+# Add middleware
+app.add_middleware(LargeRequestMiddleware)
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -50,6 +68,7 @@ async def options_enhance():
 async def root():
     return {"message": "Audio Enhancer Backend Running!"}
 
+
 # ==========================================
 #  MAIN AUDIO ENHANCE ROUTE
 # ==========================================
@@ -61,7 +80,7 @@ async def enhance_audio(file: UploadFile = File(...)):
         wav_file = "converted.wav"
         out_file = "enhanced.wav"
 
-        # Save file
+        # Save input
         with open(raw_file, "wb") as f:
             f.write(await file.read())
 
@@ -86,7 +105,6 @@ async def enhance_audio(file: UploadFile = File(...)):
         # Save output
         sf.write(out_file, data, sr)
 
-        # Return final file
         return FileResponse(
             out_file,
             media_type="audio/wav",
@@ -108,4 +126,10 @@ async def enhance_audio(file: UploadFile = File(...)):
 # ==========================================
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),
+        limit_max_requests=0,
+        timeout_keep_alive=120
+    )
