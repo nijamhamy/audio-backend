@@ -1,0 +1,31 @@
+app = "ai-audio-enhancer-backend"
+primary_region = "fra"  # Frankfurt (fast for Saudi/Lanka)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true    # save free credits
+  auto_start_machines = true
+  min_machines_running = 1     # always available
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8000
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
