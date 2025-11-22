@@ -41,6 +41,7 @@ from pedalboard import (
 # ============================================================
 app = FastAPI()
 
+# CORS FIX (Required for Netlify → Railway)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -48,6 +49,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Extra CORS fix for browsers
+@app.options("/enhance")
+async def options_enhance():
+    return {"message": "OK"}
+
 
 # ============================================================
 #                   ROUTES
