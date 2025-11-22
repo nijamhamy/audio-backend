@@ -41,7 +41,7 @@ from pedalboard import (
 # ============================================================
 app = FastAPI()
 
-# CORS FIX (Required for Netlify → Railway)
+# CORS FIX (Netlify → Railway)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -50,11 +50,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Extra CORS fix for browsers
+# Browser OPTIONS fix
 @app.options("/enhance")
 async def options_enhance():
     return {"message": "OK"}
-
 
 # ============================================================
 #                   ROUTES
@@ -90,12 +89,13 @@ async def enhance_audio(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": f"Error loading WAV: {str(e)}"}
 
-    # No AI model — simple noise reduction + EQ + normalize
+    # Noise reduction
     try:
         cleaned = nr.reduce_noise(y=y, sr=sr, prop_decrease=0.65)
     except:
         cleaned = y
 
+    # EQ + compress
     try:
         board = Pedalboard([
             HighpassFilter(80),
@@ -106,6 +106,7 @@ async def enhance_audio(file: UploadFile = File(...)):
     except:
         processed = cleaned
 
+    # Loudness normalize
     try:
         meter = pyln.Meter(sr)
         loudness = meter.integrated_loudness(processed)
@@ -114,18 +115,26 @@ async def enhance_audio(file: UploadFile = File(...)):
     except:
         normalized = processed
 
+    # Limiter
     try:
         limiter = Pedalboard([Limiter(threshold_db=-1.0)])
         final_audio = limiter(np.expand_dims(normalized, 0), sr).squeeze()
     except:
         final_audio = normalized
 
+    # Save final file
     try:
         sf.write(output_file, final_audio.astype(np.float32), sr)
     except Exception as e:
         return {"error": f"Saving failed: {str(e)}"}
 
-    return FileResponse(output_file, media_type="audio/wav", filename="enhanced_audio.wav")
+    # IMPORTANT: CORS FIX for FileResponse
+    return FileResponse(
+        output_file,
+        media_type="audio/wav",
+        filename="enhanced_audio.wav",
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 
 if __name__ == "__main__":
