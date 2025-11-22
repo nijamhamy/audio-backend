@@ -21,7 +21,7 @@ AudioSegment.ffprobe = FFPROBE_PATH
 #                     IMPORTS
 # ============================================================
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import librosa
 import noisereduce as nr
@@ -42,18 +42,32 @@ from pedalboard import (
 app = FastAPI()
 
 # CORS FIX (Netlify → Railway)
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://ai-audio-enhancer.netlify.app",
+    "*"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Browser OPTIONS fix
+# OPTIONS preflight handler
 @app.options("/enhance")
 async def options_enhance():
-    return {"message": "OK"}
+    return JSONResponse(
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
 
 # ============================================================
 #                   ROUTES
@@ -128,12 +142,16 @@ async def enhance_audio(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": f"Saving failed: {str(e)}"}
 
-    # IMPORTANT: CORS FIX for FileResponse
+    # FINAL RESPONSE WITH CORS HEADERS
     return FileResponse(
         output_file,
         media_type="audio/wav",
         filename="enhanced_audio.wav",
-        headers={"Access-Control-Allow-Origin": "*"}
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*"
+        }
     )
 
 
