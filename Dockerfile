@@ -15,5 +15,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY . .
 
-# Railway: Start server using PORT variable automatically
-CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT}"
+# Start uvicorn on fixed port 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
