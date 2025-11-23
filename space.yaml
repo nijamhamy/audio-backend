@@ -1,0 +1,9 @@
+# HuggingFace Spaces configuration
+# FastAPI backend for audio enhancer
+
+sdk: "fastapi"
+app_file: "app.py"
+python_version: "3.10"
+runtime: "python"
+
+hardware: "cpu-basic"

@@ -1,112 +1,128 @@
 import os
-import sys
-import shutil
 import numpy as np
-from fastapi import FastAPI, UploadFile, File, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
-from fastapi.middleware.cors import CORSMiddleware
-from pydub import AudioSegment
-import soundfile as sf
+import shutil
 
-# Allow large uploads
-sys.setrecursionlimit(1000000)
-
-# ================================
-#  Detect FFmpeg
-# ================================
+# ============================================================
+#               FFMPEG CONFIG (LINUX FRIENDLY)
+# ============================================================
 FFMPEG_PATH = shutil.which("ffmpeg")
+FFPROBE_PATH = shutil.which("ffprobe")
+
+print("Using FFmpeg:", FFMPEG_PATH)
+
 if FFMPEG_PATH:
-    AudioSegment.converter = FFMPEG_PATH
-    print("FFmpeg found:", FFMPEG_PATH)
-else:
-    print("⚠ Warning: FFmpeg not found")
+    os.environ["PATH"] += os.pathsep + os.path.dirname(FFMPEG_PATH)
 
+from pydub import AudioSegment
+AudioSegment.converter = FFMPEG_PATH
+AudioSegment.ffprobe = FFPROBE_PATH
 
-# ================================
-#  FastAPI app
-# ================================
+# ============================================================
+#                     IMPORTS
+# ============================================================
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+import librosa
+import noisereduce as nr
+import soundfile as sf
+import pyloudnorm as pyln
+
+from pedalboard import (
+    Pedalboard,
+    Compressor,
+    HighpassFilter,
+    HighShelfFilter,
+    Limiter
+)
+
+# ============================================================
+#                   FASTAPI APP
+# ============================================================
 app = FastAPI()
 
-# Global CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=False,
 )
 
-
-# Apply CORS to ALL responses manually
-def add_cors(response: Response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    return response
-
-
-@app.options("/enhance")
-async def cors_enhance():
-    return add_cors(JSONResponse({"message": "OK"}))
-
-
+# ============================================================
+#                   ROUTES
+# ============================================================
 @app.get("/")
-async def home():
-    return add_cors(JSONResponse({"message": "Backend running"}))
+async def root():
+    return {"message": "AI Audio Enhancer Backend is running"}
 
+@app.head("/enhance")
+async def head_enhance():
+    return {"status": "ok"}
 
-# ================================
-#  MAIN ENHANCE ENDPOINT
-# ================================
 @app.post("/enhance")
 async def enhance_audio(file: UploadFile = File(...)):
+    ext = file.filename.split(".")[-1].lower()
+    original_file = f"temp_input.{ext}"
+    wav_file = "temp_input.wav"
+    output_file = "enhanced_output.wav"
+
+    with open(original_file, "wb") as f:
+        f.write(await file.read())
+
     try:
-        ext = file.filename.split(".")[-1].lower()
-        raw_file = f"input.{ext}"
-        wav_file = "converted.wav"
-        out_file = "enhanced.wav"
-
-        # Save input
-        with open(raw_file, "wb") as f:
-            f.write(await file.read())
-
-        # Convert → wav
-        audio = AudioSegment.from_file(raw_file)
-        audio = audio.set_channels(1).set_frame_rate(44100)
+        audio = AudioSegment.from_file(original_file)
+        audio = audio.set_channels(1)
+        audio = audio.set_frame_rate(44100)
         audio.export(wav_file, format="wav")
-
-        # Load wav
-        data, sr = sf.read(wav_file)
-
-        # Light noise reduction
-        data = np.where(np.abs(data) < 0.015, 0, data)
-
-        # Normalize
-        peak = np.max(np.abs(data)) or 1.0
-        data = data / peak
-
-        # Volume boost
-        data = np.clip(data * 1.25, -1.0, 1.0)
-
-        # Save file
-        sf.write(out_file, data, sr)
-
-        # Send audio back
-        response = FileResponse(
-            out_file,
-            media_type="audio/wav",
-            filename="enhanced.wav",
-        )
-        return add_cors(response)
-
     except Exception as e:
-        error = JSONResponse({"error": str(e)}, status_code=500)
-        return add_cors(error)
+        return {"error": f"FFmpeg conversion failed: {str(e)}"}
+
+    try:
+        y, sr = librosa.load(wav_file, sr=None)
+    except Exception as e:
+        return {"error": f"Error loading WAV: {str(e)}"}
+
+    # No AI model — simple noise reduction + EQ + normalize
+    try:
+        cleaned = nr.reduce_noise(y=y, sr=sr, prop_decrease=0.65)
+    except:
+        cleaned = y
+
+    try:
+        board = Pedalboard([
+            HighpassFilter(80),
+            Compressor(threshold_db=-18, ratio=4, attack_ms=5, release_ms=120),
+            HighShelfFilter(gain_db=3.0, cutoff_frequency_hz=10000)
+        ])
+        processed = board(np.expand_dims(cleaned, 0), sr).squeeze()
+    except:
+        processed = cleaned
+
+    try:
+        meter = pyln.Meter(sr)
+        loudness = meter.integrated_loudness(processed)
+        normalized = pyln.normalize.loudness(processed, loudness, -16.0)
+        normalized = np.clip(normalized, -1.0, 1.0)
+    except:
+        normalized = processed
+
+    try:
+        limiter = Pedalboard([Limiter(threshold_db=-1.0)])
+        final_audio = limiter(np.expand_dims(normalized, 0), sr).squeeze()
+    except:
+        final_audio = normalized
+
+    try:
+        sf.write(output_file, final_audio.astype(np.float32), sr)
+    except Exception as e:
+        return {"error": f"Saving failed: {str(e)}"}
+
+    return FileResponse(output_file, media_type="audio/wav", filename="enhanced_audio.wav")
 
 
-# ================================
-#  LOCAL RUN
-# ================================
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    port = int(os.environ.get("PORT", 8000))
+    print("Starting server on port:", port)
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
